@@ -1,0 +1,478 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
+
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  // Zezwolenie na pełną rotację (pionowa oraz pozioma dla wygody)
+  SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.landscapeLeft,
+    DeviceOrientation.landscapeRight,
+  ]);
+  runApp(const TF650App());
+}
+
+class TF650App extends StatelessWidget {
+  const TF650App({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'TF650 Control Pro',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData.dark().copyWith(
+        scaffoldBackgroundColor: const Color(0xFF0A1118),
+        primaryColor: const Color(0xFF00A8FF),
+        colorScheme: const ColorScheme.dark(
+          primary: Color(0xFF00A8FF),
+          secondary: Color(0xFFFF9F43),
+        ),
+      ),
+      home: const TF650HomeScreen(),
+    );
+  }
+}
+
+class TF650HomeScreen extends StatefulWidget {
+  const TF650HomeScreen({super.key});
+
+  @override
+  State<TF650HomeScreen> createState() => _TF650HomeScreenState();
+}
+
+class _TF650HomeScreenState extends State<TF650HomeScreen> {
+  // Stany połączenia i zabezpieczeń
+  bool isConnected = false;
+  final String wifiSSID = "TF650_Boat_Net";
+  final String wifiPassword = "0000";
+
+  // Stany osprzętu
+  bool mainLightsOn = false;
+  bool outlineLightsOn = false; // Światła obrysowe
+  bool leftHopperOpen = false;
+  bool rightHopperOpen = false;
+
+  // Telemetria i ustawienia echosondy
+  double batteryLevel = 12.6; // Wolty (Akumulator)
+  double waterTemp = 18.4; // °C
+  double currentDepth = 3.2; // metry
+  double speedSetting = 50.0; // Prędkość w % (0 - 100)
+  
+  // Konfiguracja zasięgu i alarmu płycizny
+  double maxDepthSetting = 40.0; // Maksymalna głębokość 40m
+  double criticalDepthThreshold = 0.6; // Punkt krytyczny dna (60cm)
+
+  // GPS i Waypointy
+  final MapController mapController = MapController();
+  LatLng boatPosition = const LatLng(52.2297, 21.0122);
+  LatLng? homePosition;
+  List<LatLng> waypoints = [];
+  bool rthActive = false;
+
+  int selectedTab = 0; // 0: SONAR, 1: MAPA, 2: STEROWANIE
+
+  void toggleConnection() {
+    setState(() {
+      isConnected = !isConnected;
+    });
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          isConnected 
+            ? 'Połączono z Wi-Fi ($wifiSSID) z szyfrowaniem GPS/Data' 
+            : 'Rozłączono z łódką',
+        ),
+        duration: const Duration(seconds: 2),
+        backgroundColor: isConnected ? Colors.green.shade800 : Colors.red.shade800,
+      ),
+    );
+  }
+
+  void triggerRTH() {
+    if (homePosition == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Najpierw ustaw punkt HOME!'), backgroundColor: Colors.orange),
+      );
+      return;
+    }
+    setState(() {
+      rthActive = !rthActive;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(rthActive ? 'Tryb RTH Aktywny! Powrót do bazy...' : 'Anulowano powrót RTH'),
+        backgroundColor: rthActive ? Colors.green : Colors.grey,
+      ),
+    );
+  }
+
+  void setHomePoint() {
+    setState(() {
+      homePosition = boatPosition;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Zapisano obecną pozycję jako punkt HOME!'), backgroundColor: Colors.blue),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    bool isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
+
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF0F1A24),
+        title: const Text('TF650 Control', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+        actions: [
+          // Przycisk RTH
+          IconButton(
+            icon: Icon(Icons.home, color: rthActive ? Colors.green : Colors.white70),
+            onPressed: isConnected ? triggerRTH : null,
+            tooltip: 'Automatyczny Powrót (RTH)',
+          ),
+          // Szybki wskaźnik Baterii
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8.0),
+            child: Row(
+              children: [
+                const Icon(Icons.battery_5_bar, color: Colors.greenAccent, size: 20),
+                const SizedBox(width: 4),
+                Text('${batteryLevel.toStringAsFixed(1)}V', style: const TextStyle(fontWeight: FontWeight.bold)),
+              ],
+            ),
+          ),
+          // Przycisk Połączenia Wi-Fi (Hasło 0000)
+          Padding(
+            padding: const EdgeInsets.only(right: 8.0),
+            child: ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: isConnected ? Colors.red.shade800 : Colors.green.shade800,
+              ),
+              onPressed: toggleConnection,
+              icon: Icon(isConnected ? Icons.wifi_off : Icons.wifi, size: 16),
+              label: Text(isConnected ? 'ROZŁĄCZ' : 'WI-FI'),
+            ),
+          )
+        ],
+      ),
+      body: Column(
+        children: [
+          // GÓRNY PASEK TELEMETRII I OSTRZEŻEŃ
+          Container(
+            color: const Color(0xFF142230),
+            padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 10),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _TelemetryItem(
+                  label: 'GŁĘBOKOŚĆ', 
+                  value: isConnected ? '${currentDepth.toStringAsFixed(1)} m' : '0.0 m',
+                  isWarning: isConnected && currentDepth <= criticalDepthThreshold,
+                ),
+                _TelemetryItem(label: 'TEMP. WODY', value: isConnected ? '$waterTemp °C' : '-- °C'),
+                _TelemetryItem(label: 'MAX ZASIĘG', value: '${maxDepthSetting.toInt()} m'),
+                _TelemetryItem(label: 'PŁYCIZNA', value: '${(criticalDepthThreshold * 100).toInt()} cm'),
+                _TelemetryItem(label: 'PRĘDKOŚĆ', value: '${speedSetting.toInt()} %'),
+              ],
+            ),
+          ),
+
+          // PŁYCIZNA - ALARM
+          if (isConnected && currentDepth <= criticalDepthThreshold)
+            Container(
+              width: double.infinity,
+              color: Colors.red.shade900,
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: const Text(
+                'CRITICAL: PUNKT KRYTYCZNY DNA! (PŁYCIZNA < 60 CM)',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11),
+              ),
+            ),
+
+          // GŁÓWNY WIDOK APLIKACJI
+          Expanded(
+            child: IndexedStack(
+              index: selectedTab,
+              children: [
+                _buildSonarView(),
+                _buildMapView(),
+                _buildControlView(isLandscape),
+              ],
+            ),
+          ),
+
+          // DOLNY PANEL OSPRZĘTU (ŚWIATŁA, OBRYS, KLAPY)
+          _buildHardwarePanel(),
+
+          // NAWIGACJA ZAKŁADEK
+          BottomNavigationBar(
+            currentIndex: selectedTab,
+            onTap: (index) => setState(() => selectedTab = index),
+            backgroundColor: const Color(0xFF0A1118),
+            selectedItemColor: const Color(0xFF00A8FF),
+            unselectedItemColor: Colors.grey,
+            items: const [
+              BottomNavigationBarItem(icon: Icon(Icons.waves), label: 'SONAR'),
+              BottomNavigationBarItem(icon: Icon(Icons.map), label: 'MAPA'),
+              BottomNavigationBarItem(icon: Icon(Icons.tune), label: 'STEROWANIE'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // WIDOK 1: SONAR I ECHOSONDA
+  Widget _buildSonarView() {
+    return Container(
+      color: Colors.black,
+      child: isConnected
+          ? Stack(
+              children: [
+                Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.waves, size: 80, color: Color(0xFF00A8FF)),
+                      const SizedBox(height: 10),
+                      Text('Aktualny pomiar dna: $currentDepth m', style: const TextStyle(fontSize: 18, color: Colors.white70)),
+                      Text('Ustawiony maks. zasięg echosondy: ${maxDepthSetting.toInt()} m', style: const TextStyle(color: Colors.grey)),
+                    ],
+                  ),
+                ),
+                Positioned(
+                  right: 10,
+                  top: 20,
+                  child: Container(
+                    padding: const EdgeInsets.all(8),
+                    color: Colors.black54,
+                    child: Column(
+                      children: [
+                        const Text('Skala', style: TextStyle(fontSize: 10, color: Colors.grey)),
+                        Text('0m', style: TextStyle(color: Colors.cyan.shade300, fontSize: 10)),
+                        const SizedBox(height: 100),
+                        Text('${maxDepthSetting.toInt()}m', style: TextStyle(color: Colors.cyan.shade300, fontSize: 10)),
+                      ],
+                    ),
+                  ),
+                )
+              ],
+            )
+          : const Center(child: Text('Brak połączenia Wi-Fi – połącz łódkę')),
+    );
+  }
+
+  // WIDOK 2: MAPA I WAYPOINTY GPS
+  Widget _buildMapView() {
+    return FlutterMap(
+      mapController: mapController,
+      options: MapOptions(
+        initialCenter: boatPosition,
+        initialZoom: 16.0,
+        onTap: (tapPosition, point) {
+          setState(() {
+            waypoints.add(point);
+          });
+        },
+      ),
+      children: [
+        TileLayer(
+          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+          userAgentPackageName: 'com.tf650.control',
+        ),
+        MarkerLayer(
+          markers: [
+            // Pozycja łódki
+            Marker(
+              point: boatPosition,
+              width: 40,
+              height: 40,
+              child: const Icon(Icons.directions_boat, color: Colors.blue, size: 30),
+            ),
+            // Punkt Home
+            if (homePosition != null)
+              Marker(
+                point: homePosition!,
+                width: 40,
+                height: 40,
+                child: const Icon(Icons.home_pin, color: Colors.green, size: 36),
+              ),
+            // Waypointy
+            ...waypoints.map(
+              (wp) => Marker(
+                point: wp,
+                width: 30,
+                height: 30,
+                child: const Icon(Icons.location_on, color: Colors.red, size: 28),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  // WIDOK 3: REGULACJA PRĘDKOŚCI ORAZ USTAWIENIA
+  Widget _buildControlView(bool isLandscape) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('USTAWIENIA SILNIKA I PRĘDKOŚCI', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+          Row(
+            children: [
+              const Icon(Icons.speed, color: Color(0xFF00A8FF)),
+              Expanded(
+                child: Slider(
+                  value: speedSetting,
+                  min: 10.0,
+                  max: 100.0,
+                  divisions: 9,
+                  label: '${speedSetting.toInt()}% Prędkości',
+                  onChanged: (val) {
+                    setState(() {
+                      speedSetting = val;
+                    });
+                  },
+                ),
+              ),
+              Text('${speedSetting.toInt()}%', style: const TextStyle(fontWeight: FontWeight.bold)),
+            ],
+          ),
+          const Divider(height: 30),
+          const Text('NAWIGACJA I PUNKTY GPS', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: setHomePoint,
+                  icon: const Icon(Icons.add_location_alt),
+                  label: const Text('USTAW HOME'),
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.blue.shade900),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () => setState(() => waypoints.clear()),
+                  icon: const Icon(Icons.clear_all),
+                  label: const Text('RESET PUNKTÓW'),
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.grey.shade800),
+                ),
+              ),
+            ],
+          ),
+          const Divider(height: 30),
+          const Text('USTAWIENIA ECHOSONDY', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+          ListTile(
+            title: const Text('Punkt Krytyczny Dna (Płycizna)'),
+            subtitle: Text('${(criticalDepthThreshold * 100).toInt()} cm od dna'),
+            trailing: DropdownButton<double>(
+              value: criticalDepthThreshold,
+              items: const [
+                DropdownMenuItem(value: 0.4, child: Text('40 cm')),
+                DropdownMenuItem(value: 0.6, child: Text('60 cm')),
+                DropdownMenuItem(value: 1.0, child: Text('100 cm')),
+              ],
+              onChanged: (val) {
+                if (val != null) setState(() => criticalDepthThreshold = val);
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // DOLNY PANEL OSPRZĘTU (KLAPY + OŚWIETLENIE + OBRYS)
+  Widget _buildHardwarePanel() {
+    return Container(
+      color: const Color(0xFF0F1A24),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              // Klapa Lewa
+              Expanded(
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: leftHopperOpen ? Colors.orange.shade900 : const Color(0xFF1E2D3D),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  onPressed: isConnected ? () => setState(() => leftHopperOpen = !leftHopperOpen) : null,
+                  child: Text(leftHopperOpen ? 'KLAPA L: OTW' : 'KLAPA LEWA', style: const TextStyle(fontSize: 11)),
+                ),
+              ),
+              const SizedBox(width: 6),
+              // Światła Główne
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: mainLightsOn ? Colors.amber.shade700 : const Color(0xFF1E2D3D),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+                ),
+                onPressed: isConnected ? () => setState(() => mainLightsOn = !mainLightsOn) : null,
+                child: Icon(Icons.lightbulb, color: mainLightsOn ? Colors.black : Colors.white),
+              ),
+              const SizedBox(width: 6),
+              // Światła Obrysowe
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: outlineLightsOn ? Colors.cyan.shade700 : const Color(0xFF1E2D3D),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+                ),
+                onPressed: isConnected ? () => setState(() => outlineLightsOn = !outlineLightsOn) : null,
+                child: Icon(Icons.highlight, color: outlineLightsOn ? Colors.black : Colors.white),
+              ),
+              const SizedBox(width: 6),
+              // Klapa Prawa
+              Expanded(
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: rightHopperOpen ? Colors.orange.shade900 : const Color(0xFF1E2D3D),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  onPressed: isConnected ? () => setState(() => rightHopperOpen = !rightHopperOpen) : null,
+                  child: Text(rightHopperOpen ? 'KLAPA P: OTW' : 'KLAPA PRAWA', style: const TextStyle(fontSize: 11)),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TelemetryItem extends StatelessWidget {
+  final String label;
+  final String value;
+  final bool isWarning;
+
+  const _TelemetryItem({required this.label, required this.value, this.isWarning = false});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Text(label, style: const TextStyle(color: Colors.grey, fontSize: 8, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 2),
+        Text(
+          value,
+          style: TextStyle(
+            color: isWarning ? Colors.redAccent : Colors.white,
+            fontSize: 11,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ],
+    );
+  }
+}
