@@ -1,51 +1,524 @@
-name: Build TF650 App
+import 'dart:async';
+import 'dart:math';
+import 'package:flutter/material.dart';
 
-on:
-  workflow_dispatch:
-  push:
-    branches: [main]
+void main() {
+  runApp(const TF650App());
+}
 
-jobs:
-  android:
-    name: Android APK
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+class TF650App extends StatelessWidget {
+  const TF650App({super.key});
 
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'TF650 Control',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData.dark().copyWith(
+        scaffoldBackgroundColor: const Color(0xFF090D16),
+        cardColor: const Color(0xFF101726),
+        colorScheme: const ColorScheme.dark(
+          primary: Color(0xFF00E676),
+          secondary: Color(0xFF00B0FF),
+          surface: Color(0xFF101726),
+        ),
+      ),
+      home: const MainControlScreen(),
+    );
+  }
+}
 
-      - uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          flutter-version: 3.29.0
+class MainControlScreen extends StatefulWidget {
+  const MainControlScreen({super.key});
 
-      - name: Przygotowanie pliku main.dart
-        run: |
-          flutter create --platforms=android temp_proj
-          cp -r temp_proj/android ./
-          cp temp_proj/pubspec.yaml ./
-          
-          mkdir -p lib
-          # Kopiujemy kod z Twojego pliku 'update z wifi itd' jako główny plik aplikacji
-          if [ -f "update z wifi itd" ]; then
-            cp "update z wifi itd" lib/main.dart
-          elif [ -f "lib/main.dart" ]; then
-            echo "Znaleziono lib/main.dart"
-          fi
-          
-          rm -rf temp_proj
+  @override
+  State<MainControlScreen> createState() => _MainControlScreenState();
+}
 
-      - name: Pobieranie pakietów
-        run: flutter pub get
+class _MainControlScreenState extends State<MainControlScreen> {
+  int _currentTab = 0; // 0: SONAR, 1: MAPA, 2: STEROWANIE
+  bool _isConnected = false;
+  bool _isAutoMode = false;
+  
+  // Telemetria
+  double _depth = 0.0;
+  double _temp = 18.4;
+  int _heading = 0;
+  double _speed = 0.0;
+  int _satellites = 0;
+  double _distToHome = 0.0;
+  double _battery = 12.6;
 
-      - name: Budowanie pliku APK
-        run: flutter build apk --release
+  // Ustawienia systemowe (SETTINGS)
+  String _wifiSsid = "TF650_BOAT_NET";
+  String _wifiPass = "12345678";
+  String _ipAddress = "192.168.4.1";
+  int _port = 8080;
+  double _lightPower = 80;
+  bool _obrysowki = true;
+  bool _downloadOfflineMaps = true;
+  double _gpsUpdateRate = 5; // Hz
 
-      - name: Udostępnienie pliku APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: tf650-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+  // Zmienne do wykresu Sonaru
+  List<double> _sonarData = [];
+  Timer? _telemetryTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _startSimulatedData();
+  }
+
+  void _startSimulatedData() {
+    _telemetryTimer = Timer.periodic(const Duration(milliseconds: 500), (timer) {
+      if (_isConnected) {
+        setState(() {
+          _depth = 1.8 + Random().nextDouble() * 0.4;
+          _heading = (_heading + 1) % 360;
+          _speed = _isAutoMode ? 1.4 : 0.0;
+          _satellites = 14;
+          _distToHome = 42.5;
+          _sonarData.add(_depth);
+          if (_sonarData.length > 80) _sonarData.removeAt(0);
+        });
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _telemetryTimer?.cancel();
+    super.dispose();
+  }
+
+  void _toggleConnection() {
+    setState(() {
+      _isConnected = !_isConnected;
+      if (!_isConnected) {
+        _depth = 0.0;
+        _speed = 0.0;
+        _satellites = 0;
+        _distToHome = 0.0;
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: SafeArea(
+        child: Column(
+          children: [
+            _buildTopHeader(),
+            _buildTelemetryBar(),
+            Expanded(child: _buildMainContent()),
+            _buildBottomActionBar(),
+            _buildTabNavigationBar(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // --- TOP HEADER ---
+  Widget _buildTopHeader() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      color: const Color(0xFF0D131F),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Row(
+            children: const [
+              Icon(Icons.directions_boat, color: Color(0xFF00E676), size: 20),
+              SizedBox(width: 8),
+              Text(
+                'TF650 Control',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.white),
+              ),
+            ],
+          ),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: _isConnected ? Colors.green.withOpacity(0.2) : Colors.red.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: _isConnected ? Colors.green : Colors.red),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.circle, size: 8, color: _isConnected ? Colors.green : Colors.red),
+                    const SizedBox(width: 6),
+                    Text(_isConnected ? 'ON' : 'OFF', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _isConnected ? Colors.red[800] : const Color(0xFF1E293B),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                ),
+                onPressed: _toggleConnection,
+                child: Text(_isConnected ? 'Rozłącz' : 'Połącz', style: const TextStyle(color: Colors.white, fontSize: 12)),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                icon: const Icon(Icons.settings, color: Colors.grey),
+                onPressed: _showSettingsDialog,
+                tooltip: 'Ustawienia (Settings)',
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // --- PASEK TELEMETRII ---
+  Widget _buildTelemetryBar() {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+      color: const Color(0xFF0B101B),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: [
+          _buildTelemetryItem('GŁĘBOKOŚĆ', '${_depth.toStringAsFixed(1)} m', Colors.cyanAccent),
+          _buildTelemetryItem('TEMP', _isConnected ? '$_temp °C' : '--', Colors.white70),
+          _buildTelemetryItem('KURS', '$_heading°', Colors.white70),
+          _buildTelemetryItem('PRĘDKOŚĆ', '${_speed.toStringAsFixed(1)} m/s', Colors.white70),
+          _buildTelemetryItem('SAT', '$_satellites', Colors.amberAccent),
+          _buildTelemetryItem('DO HOME', _isConnected ? '${_distToHome.toStringAsFixed(1)} m' : '--', Colors.white70),
+          _buildTelemetryItem('AKU', _isConnected ? '${_battery.toStringAsFixed(1)} V' : '--', Colors.greenAccent),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTelemetryItem(String label, String value, Color valueColor) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(label, style: const TextStyle(fontSize: 9, color: Colors.grey, fontWeight: FontWeight.w600)),
+        const SizedBox(height: 2),
+        Text(value, style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: valueColor)),
+      ],
+    );
+  }
+
+  // --- ZAWARTOŚĆ GŁÓWNA ---
+  Widget _buildMainContent() {
+    switch (_currentTab) {
+      case 0:
+        return _buildSonarView();
+      case 1:
+        return _buildMapView();
+      case 2:
+        return _buildControlView();
+      default:
+        return _buildSonarView();
+    }
+  }
+
+  // EKRAN SONAR
+  Widget _buildSonarView() {
+    return Container(
+      width: double.infinity,
+      color: Colors.black,
+      child: !_isConnected
+          ? const Center(child: Text('Brak danych — naciśnij „Połącz”', style: TextStyle(color: Colors.grey)))
+          : CustomPaint(
+              painter: SonarPainter(_sonarData),
+              child: Container(),
+            ),
+    );
+  }
+
+  // EKRAN MAPA
+  Widget _buildMapView() {
+    return Container(
+      color: const Color(0xFF070A10),
+      child: Stack(
+        children: [
+          Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.map_outlined, size: 64, color: Colors.white24),
+                const SizedBox(height: 12),
+                Text(
+                  _downloadOfflineMaps ? "Siatka Mapy GPS (Tryb Offline Włączony)" : "Mapa Wi-Fi Online",
+                  style: const TextStyle(color: Colors.white54),
+                ),
+              ],
+            ),
+          ),
+          Positioned(
+            left: 10,
+            bottom: 10,
+            child: Container(
+              padding: const EdgeInsets.all(4),
+              color: Colors.black54,
+              child: const Text('Scale: 50 m', style: TextStyle(color: Colors.white, fontSize: 10)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // EKRAN STEROWANIE
+  Widget _buildControlView() {
+    return Row(
+      children: [
+        Expanded(
+          child: Center(
+            child: Container(
+              width: 120, height: 120,
+              decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.white10, border: Border.all(color: Colors.cyan)),
+              child: const Center(child: Text('GAZ / SKRĘT', style: TextStyle(fontSize: 10, color: Colors.grey))),
+            ),
+          ),
+        ),
+        Expanded(
+          child: Center(
+            child: Container(
+              width: 120, height: 120,
+              decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.white10, border: Border.all(color: Colors.green)),
+              child: const Center(child: Text('KAMERA / KLAPY', style: TextStyle(fontSize: 10, color: Colors.grey))),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // --- PASEK AKCJI ---
+  Widget _buildBottomActionBar() {
+    if (_currentTab == 0) {
+      return Container(
+        color: const Color(0xFF0D131F),
+        padding: const EdgeInsets.all(6),
+        child: Row(
+          children: [
+            _actionBtn('AUTO'),
+            _actionBtn('5 m'),
+            _actionBtn('10 m'),
+            _actionBtn('20 m'),
+            _actionBtn('40 m'),
+            _actionBtn('Paleta'),
+            _actionBtn('Wyczysć'),
+            const Spacer(),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red, shape: const CircleBorder(), padding: const EdgeInsets.all(16)),
+              onPressed: () {},
+              child: const Text('STOP', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 10)),
+            ),
+          ],
+        ),
+      );
+    } else if (_currentTab == 1) {
+      return Container(
+        color: const Color(0xFF0D131F),
+        padding: const EdgeInsets.all(6),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              _actionBtn('+ Punkt tu'),
+              _actionBtn('Ustaw HOME'),
+              _actionBtn('Start trasy'),
+              _actionBtn('Powrót'),
+              _actionBtn('Mapowanie'),
+              _actionBtn('Punkty'),
+              _actionBtn('Eksport CSV'),
+              _actionBtn('Wyczyść ślad'),
+            ],
+          ),
+        ),
+      );
+    }
+    return const SizedBox.shrink();
+  }
+
+  Widget _actionBtn(String text) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 2),
+      child: OutlinedButton(
+        style: OutlinedButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          side: const BorderSide(color: Colors.white24),
+        ),
+        onPressed: () {},
+        child: Text(text, style: const TextStyle(fontSize: 10, color: Colors.white70)),
+      ),
+    );
+  }
+
+  // --- DOLNA NAWIGACJA (TABS) ---
+  Widget _buildTabNavigationBar() {
+    return Container(
+      color: const Color(0xFF090D16),
+      child: Row(
+        children: [
+          _navTab(0, 'SONAR'),
+          _navTab(1, 'MAPA'),
+          _navTab(2, 'STEROWANIE'),
+        ],
+      ),
+    );
+  }
+
+  Widget _navTab(int index, String label) {
+    final isSelected = _currentTab == index;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => setState(() => _currentTab = index),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          decoration: BoxDecoration(
+            color: isSelected ? const Color(0xFF132035) : Colors.transparent,
+            border: Border(top: BorderSide(color: isSelected ? Colors.cyanAccent : Colors.transparent, width: 2)),
+          ),
+          child: Center(
+            child: Text(
+              label,
+              style: TextStyle(
+                color: isSelected ? Colors.cyanAccent : Colors.grey,
+                fontWeight: FontWeight.bold,
+                fontSize: 12,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // --- OKNO USTAWIEŃ (SETTINGS DIALOG) ---
+  void _showSettingsDialog() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              backgroundColor: const Color(0xFF101726),
+              title: Row(
+                children: const [
+                  Icon(Icons.settings, color: Colors.cyanAccent),
+                  SizedBox(width: 8),
+                  Text('Ustawienia TF650', style: TextStyle(color: Colors.white)),
+                ],
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text('POŁĄCZENIE WI-FI & SIEĆ', style: TextStyle(color: Colors.cyanAccent, fontSize: 11, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 8),
+                    TextField(
+                      decoration: const InputDecoration(labelText: 'SSID Sieci', isDense: true),
+                      controller: TextEditingController(text: _wifiSsid),
+                      onChanged: (v) => _wifiSsid = v,
+                    ),
+                    const SizedBox(height: 6),
+                    TextField(
+                      decoration: const InputDecoration(labelText: 'Adres IP', isDense: true),
+                      controller: TextEditingController(text: _ipAddress),
+                      onChanged: (v) => _ipAddress = v,
+                    ),
+                    const SizedBox(height: 12),
+                    SwitchListTile(
+                      title: const Text('Pobieranie / Zapis Map Offline (Wi-Fi)', style: TextStyle(fontSize: 12)),
+                      value: _downloadOfflineMaps,
+                      onChanged: (val) {
+                        setDialogState(() => _downloadOfflineMaps = val);
+                        setState(() {});
+                      },
+                    ),
+                    const Divider(color: Colors.white24),
+                    const Text('OŚWIETLENIE I KLAPY', style: TextStyle(color: Colors.cyanAccent, fontSize: 11, fontWeight: FontWeight.bold)),
+                    Row(
+                      children: [
+                        const Text('Moc świateł głównych:', style: TextStyle(fontSize: 11)),
+                        Expanded(
+                          child: Slider(
+                            value: _lightPower,
+                            min: 0, max: 100,
+                            onChanged: (val) {
+                              setDialogState(() => _lightPower = val);
+                              setState(() {});
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                    SwitchListTile(
+                      title: const Text('Światła obrysowe', style: TextStyle(fontSize: 12)),
+                      value: _obrysowki,
+                      onChanged: (val) {
+                        setDialogState(() => _obrysowki = val);
+                        setState(() {});
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('ZAMKNIJ', style: TextStyle(color: Colors.cyanAccent)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+// PAINTER DO SONARU
+class SonarPainter extends CustomPainter {
+  final List<double> data;
+  SonarPainter(this.data);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.cyanAccent
+      ..strokeWidth = 2.0
+      ..style = PaintingStyle.stroke;
+
+    final gridPaint = Paint()
+      ..color = Colors.white10
+      ..strokeWidth = 1.0;
+
+    for (double i = 0; i < size.height; i += 30) {
+      canvas.drawLine(Offset(0, i), Offset(size.width, i), gridPaint);
+    }
+
+    if (data.isEmpty) return;
+
+    final path = Path();
+    double dx = size.width / 80;
+
+    for (int i = 0; i < data.length; i++) {
+      double x = i * dx;
+      double y = (data[i] / 10.0) * size.height;
+      if (i == 0) {
+        path.moveTo(x, y);
+      } else {
+        path.lineTo(x, y);
+      }
+    }
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
+}
