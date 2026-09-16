@@ -24,9 +24,12 @@ jobs:
 
       - name: Przygotowanie środowiska
         run: |
-          flutter create --platforms=android temp_proj
-          cp -r temp_proj/android ./
-          cp temp_proj/pubspec.yaml ./
+          mkdir temp_proj
+          cd temp_proj
+          flutter create --platforms=android myapp
+          cd ..
+          cp -r temp_proj/myapp/android ./
+          cp temp_proj/myapp/pubspec.yaml ./
           rm -rf temp_proj
 
       - name: Pobieranie pakietów
