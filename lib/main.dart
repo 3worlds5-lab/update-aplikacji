@@ -306,14 +306,13 @@ class _MainControlScreenState extends State<MainControlScreen> {
   Widget _buildJoysticksTab() {
     return Column(
       children: [
-        // MINI MAPA PODGLĄDOWA NAD JOYSTICKAMI
         Container(
           height: 120,
           margin: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             color: const Color(0xFF101726),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.cyanAccent.withOpacity(0.5), width: 1),
+            border: Border.all(color: Colors.cyanAccent, width: 1),
           ),
           child: Stack(
             children: [
@@ -338,17 +337,16 @@ class _MainControlScreenState extends State<MainControlScreen> {
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
-                      color: Colors.cyanAccent.withOpacity(0.2),
+                      color: Colors.cyan,
                       borderRadius: BorderRadius.circular(6),
                     ),
-                    child: const Text('PEŁNA MAPA >', style: TextStyle(fontSize: 10, color: Colors.cyanAccent)),
+                    child: const Text('PEŁNA MAPA >', style: TextStyle(fontSize: 10, color: Colors.black, fontWeight: FontWeight.bold)),
                   ),
                 ),
               ),
             ],
           ),
         ),
-        // JOYSTICKI
         Expanded(
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
