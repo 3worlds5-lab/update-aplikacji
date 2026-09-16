@@ -22,31 +22,21 @@ jobs:
           channel: stable
           flutter-version: 3.29.0
 
-      - name: Przygotowanie pliku main.dart
+      - name: Przygotowanie środowiska
         run: |
-          # Tworzymy czysty projekt Flutter
           flutter create --platforms=android temp_proj
-          
-          # Przenosimy strukturę Androida i pubspec.yaml
           cp -r temp_proj/android ./
           cp temp_proj/pubspec.yaml ./
-          
-          # Tworzymy folder lib i kopiujemy Twój kod
-          mkdir -p lib
-          if [ -f "tf650 apdate z klapami.dart" ]; then
-            cp "tf650 apdate z klapami.dart" lib/main.dart
-          fi
-          
           rm -rf temp_proj
 
       - name: Pobieranie pakietów
         run: flutter pub get
 
-      - name: Budowanie pliku APK
+      - name: Budowanie APK
         run: flutter build apk --release
 
       - name: Udostępnienie pliku APK
         uses: actions/upload-artifact@v4
         with:
-          name: tf650-apk
+          name: tf650-final-apk
           path: build/app/outputs/flutter-apk/app-release.apk
