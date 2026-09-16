@@ -22,14 +22,14 @@ jobs:
           channel: stable
           flutter-version: 3.29.0
 
-      - name: Przygotowanie środowiska
+      - name: Generowanie struktury projektu
         run: |
           mkdir temp_proj
           cd temp_proj
-          flutter create --platforms=android myapp
+          flutter create --platforms=android app
           cd ..
-          cp -r temp_proj/myapp/android ./
-          cp temp_proj/myapp/pubspec.yaml ./
+          cp -r temp_proj/app/android ./
+          cp temp_proj/app/pubspec.yaml ./
           rm -rf temp_proj
 
       - name: Pobieranie pakietów
