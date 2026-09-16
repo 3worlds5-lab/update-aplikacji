@@ -55,6 +55,12 @@ class _MainControlScreenState extends State<MainControlScreen> {
   bool isRTHActive = false;
   bool isHomeSet = false;
 
+  // Mapowanie Batymetryczne i Echosonda
+  bool isMappingActive = false;
+  double currentDepth = 4.2;
+  double currentTemp = 18.5;
+  List<String> savedWaypoints = [];
+
   void _showWifiEditDialog() {
     TextEditingController ssidController = TextEditingController(text: wifiSSID);
     TextEditingController passController = TextEditingController(text: wifiPass);
@@ -96,6 +102,15 @@ class _MainControlScreenState extends State<MainControlScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  void _addWaypoint() {
+    setState(() {
+      savedWaypoints.add("Pkt ${savedWaypoints.length + 1} (${currentDepth}m)");
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Zapisano punkt zanęcania #${savedWaypoints.length}!')),
     );
   }
 
@@ -156,11 +171,11 @@ class _MainControlScreenState extends State<MainControlScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.waves, size: 64, color: _isConnected ? Colors.cyanAccent : Colors.grey),
+            const Icon(Icons.waves, size: 64, color: Colors.cyanAccent),
             const SizedBox(height: 16),
             Text(
-              _isConnected ? 'ECHOSONDA LIVE — DANE POBIERANE' : 'BRAK POŁĄCZENIA Z ECHOSONDĄ',
-              style: TextStyle(color: _isConnected ? Colors.cyanAccent : Colors.grey, fontWeight: FontWeight.bold),
+              _isConnected ? 'ECHOSONDA LIVE — Odczyt: ${currentDepth}m' : 'BRAK POŁĄCZENIA Z ECHOSONDĄ',
+              style: const TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.bold),
             ),
           ],
         ),
@@ -180,19 +195,18 @@ class _MainControlScreenState extends State<MainControlScreen> {
                 Icon(
                   Icons.sailing,
                   size: 64,
-                  color: isRTHActive ? Colors.amber : Colors.cyanAccent,
+                  color: isRTHActive ? Colors.amber : (isMappingActive ? Colors.greenAccent : Colors.cyanAccent),
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  isRTHActive ? 'AUTOPILOT: POWRÓT DO BAZY (RTH)...' : 'TRYB MAPY GPS ($connectionMode)',
-                  style: TextStyle(
-                    color: isRTHActive ? Colors.amber : Colors.white70,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  isRTHActive
+                      ? 'AUTOPILOT: POWRÓT DO BAZY (RTH)...'
+                      : (isMappingActive ? 'MAPPING BATYMETRYCZNY AKTYWNY' : 'TRYB MAPY GPS ($connectionMode)'),
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  isHomeSet ? 'Punkt HOME zapisany w pamięci' : 'Brak ustawionego punktu HOME',
+                  'Głębokość: ${currentDepth}m | Punkty: ${savedWaypoints.length}',
                   style: const TextStyle(fontSize: 12, color: Colors.grey),
                 ),
               ],
@@ -204,6 +218,22 @@ class _MainControlScreenState extends State<MainControlScreen> {
             child: Column(
               children: [
                 FloatingActionButton.extended(
+                  heroTag: 'btn_map_toggle',
+                  backgroundColor: isMappingActive ? Colors.green : Colors.indigo,
+                  icon: const Icon(Icons.layers, color: Colors.white),
+                  label: Text(isMappingActive ? 'MAPOWANIE ON' : 'START MAPOWANIA'),
+                  onPressed: () => setState(() => isMappingActive = !isMappingActive),
+                ),
+                const SizedBox(height: 10),
+                FloatingActionButton.extended(
+                  heroTag: 'btn_add_wpt',
+                  backgroundColor: Colors.teal,
+                  icon: const Icon(Icons.add_location_alt, color: Colors.white),
+                  label: const Text('ZAPISZ PUNKT'),
+                  onPressed: _addWaypoint,
+                ),
+                const SizedBox(height: 10),
+                FloatingActionButton.extended(
                   heroTag: 'btn_home',
                   backgroundColor: isHomeSet ? Colors.green : Colors.blueGrey,
                   icon: const Icon(Icons.home, color: Colors.white),
@@ -211,11 +241,11 @@ class _MainControlScreenState extends State<MainControlScreen> {
                   onPressed: () {
                     setState(() => isHomeSet = true);
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Punkt HOME został zapisany!')),
+                      const SnackBar(content: Text('Punkt HOME zapisany!')),
                     );
                   },
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 10),
                 FloatingActionButton.extended(
                   heroTag: 'btn_rth',
                   backgroundColor: isRTHActive ? Colors.redAccent : Colors.amber,
@@ -316,15 +346,15 @@ class _MainControlScreenState extends State<MainControlScreen> {
           ),
           child: Stack(
             children: [
-              Center(
+              const Center(
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Icon(Icons.navigation, color: Colors.cyanAccent, size: 24),
-                    const SizedBox(width: 8),
+                    Icon(Icons.navigation, color: Colors.cyanAccent, size: 24),
+                    SizedBox(width: 8),
                     Text(
-                      _isConnected ? 'POZYCJA ŁÓDKI: LAT 50.061, LON 19.937' : 'MINI MAPA: BRAK SYGNAŁU GPS',
-                      style: const TextStyle(fontSize: 11, color: Colors.white70),
+                      'MINI MAPA: GPS AKTYWNY',
+                      style: TextStyle(fontSize: 11, color: Colors.white70),
                     ),
                   ],
                 ),
@@ -438,7 +468,7 @@ class _MainControlScreenState extends State<MainControlScreen> {
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           child: Column(
-            crossAlignment: CrossAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text('Moc świateł głównych: ${lightPower.round()}%'),
               Slider(
