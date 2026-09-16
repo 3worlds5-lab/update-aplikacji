@@ -1,5 +1,3 @@
-import 'package:flutter/material.dart'; void main() => runApp(MaterialApp(home: Scaffold(body: Center(child: Text('TF650 Control Pro')))));
-cat << 'EOF' > lib/main.dart
 import 'package:flutter/material.dart';
 
 void main() {
@@ -39,7 +37,6 @@ class _MainControlScreenState extends State<MainControlScreen> {
   bool _isConnected = false;
 
   String wifiSSID = "TF650_BOAT_NET";
-  String wifiPass = "00000000";
   double lightPower = 80;
   bool obrysowkiOn = true;
   bool liveMapsActive = true;
@@ -57,7 +54,9 @@ class _MainControlScreenState extends State<MainControlScreen> {
             tooltip: 'Settings',
           ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: _isConnected ? Colors.red : Colors.green),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _isConnected ? Colors.red : Colors.green,
+            ),
             onPressed: () => setState(() => _isConnected = !_isConnected),
             child: Text(_isConnected ? 'ROZŁĄCZ' : 'POŁĄCZ', style: const TextStyle(fontSize: 11)),
           ),
@@ -94,9 +93,16 @@ class _MainControlScreenState extends State<MainControlScreen> {
     return Container(
       color: Colors.black,
       child: Center(
-        child: Text(
-          _isConnected ? 'ECHOSONDA LIVE — DANE POBIERANE' : 'BRAK POŁĄCZENIA Z ECHOSONDĄ',
-          style: TextStyle(color: _isConnected ? Colors.cyanAccent : Colors.grey),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.waves, size: 64, color: _isConnected ? Colors.cyanAccent : Colors.grey),
+            const SizedBox(height: 16),
+            Text(
+              _isConnected ? 'ECHOSONDA LIVE — DANE POBIERANE' : 'BRAK POŁĄCZENIA Z ECHOSONDĄ',
+              style: TextStyle(color: _isConnected ? Colors.cyanAccent : Colors.grey, fontWeight: FontWeight.bold),
+            ),
+          ],
         ),
       ),
     );
@@ -197,4 +203,3 @@ class _MainControlScreenState extends State<MainControlScreen> {
     );
   }
 }
-EOF
