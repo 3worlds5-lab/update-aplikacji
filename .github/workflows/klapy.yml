@@ -36,10 +36,10 @@ jobs:
         run: flutter pub get
 
       - name: Budowanie APK
-        run: flutter build apk --release
+       run: flutter build apk --debug
 
       - name: Udostępnienie pliku APK
         uses: actions/upload-artifact@v4
         with:
           name: tf650-final-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+          path: build/app/outputs/flutter-apk/app-debug.apk
